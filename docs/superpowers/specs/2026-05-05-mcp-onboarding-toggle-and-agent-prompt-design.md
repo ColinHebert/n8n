@@ -9,7 +9,8 @@ Refactor the surface-MCP onboarding modal so that:
 2. The two-step manual setup (env var + config file) and the connection
    details panel (URL / token / Configuration JSON) are replaced with a
    single agent setup prompt that the user pastes into Claude Code or
-   Codex. The agent then registers the n8n MCP server itself.
+   Codex. The agent performs the shell or config changes, then tells the
+   user to restart the client to finish setup.
 
 The change keeps the modal a single-screen experience and continues to
 target the experiment's audience: Cloud trial admins running Claude Code
@@ -18,7 +19,8 @@ or Codex.
 ## Goals
 
 - Reduce the onboarding flow from "toggle + read connection details +
-  set env var + edit config file" to "toggle + paste prompt".
+  set env var + edit config file" to "toggle + paste prompt + restart
+  the client".
 - Use a toggle to make the enabled / disabled state explicit and
   reversible inside the onboarding surface.
 - Register the MCP server **globally** (user scope) so it works in every
@@ -77,9 +79,10 @@ Replace the `Enable MCP access` `N8nButton` with the existing
 `McpAccessToggle` component. The toggle is bidirectional. Toggling on
 enables MCP access. Toggling off disables it.
 
-The toggle inherits `McpAccessToggle`'s built-in handling for the
-env-managed case: when `mcpManagedByEnv` is true, the toggle is disabled
-and a tooltip explains that MCP access is managed by environment.
+To get the correct env-managed behavior, the modal must pass both
+`disabled` and `managedByEnv` to `McpAccessToggle`. When
+`mcpManagedByEnv` is true, the toggle is disabled and the tooltip
+explains that MCP access is managed by environment.
 
 ### Single agent prompt replaces manual steps and the connection details panel
 
@@ -90,7 +93,9 @@ The two-step manual setup is removed.
 
 In their place, a single panel renders a setup prompt that the user
 copies and pastes into their agent (Claude Code or Codex). The agent
-performs the steps autonomously.
+performs the file or CLI changes, then tells the user to restart the
+client. Verification happens after restart, not in the same pasted
+session.
 
 The prompt embeds the server URL and access token inline. The user does
 not need to copy raw connection values separately.
@@ -104,10 +109,11 @@ This differs from the previous project-local `.mcp.json` flow.
 
 ### Env-var indirection is preserved
 
-The token is referenced from the agent config via `${N8N_MCP_TOKEN}` /
-`bearer_token_env_var`. The user is instructed to set the env var in
-their shell config (e.g. `~/.zshrc`, `~/.bashrc`). The token does not
-end up written into the config file as a literal string.
+The token is referenced from the agent config via a literal
+`${N8N_MCP_TOKEN}` placeholder for Claude Code and
+`bearer_token_env_var` for Codex. The user is instructed to set the env
+var in their shell config (e.g. `~/.zshrc`, `~/.bashrc`). The token does
+not end up written into the config file as a literal string.
 
 ### Claude Code uses the `claude mcp add` CLI
 
@@ -115,12 +121,14 @@ For Claude Code, the prompt instructs the agent to run:
 
 ```
 claude mcp add --scope user --transport http n8n "<server-url>" \
-  --header "Authorization: Bearer ${N8N_MCP_TOKEN}"
+  --header 'Authorization: Bearer ${N8N_MCP_TOKEN}'
 ```
 
 This avoids depending on Claude Code's user-scope config file path,
 which can vary across versions, and lets the CLI handle merging into
-existing configuration.
+existing configuration. The single quotes are required so the shell
+passes `${N8N_MCP_TOKEN}` through literally instead of expanding it
+before Claude Code stores the config.
 
 ### Codex edits `~/.codex/config.toml`
 
@@ -164,8 +172,8 @@ Connect Claude Code or Codex...
 
   --- Toggle ON ---
   Setup prompt
-  Paste this into <client> and it will register the n8n
-  MCP server globally for you.
+  Paste this into <client> to set up the n8n MCP server.
+  When the agent finishes, restart <client>.
 
   <prompt code block>
 
@@ -192,13 +200,13 @@ Set up the n8n MCP server for Claude Code globally
 
    claude mcp add --scope user --transport http n8n \
      "<server-url>" \
-     --header "Authorization: Bearer ${N8N_MCP_TOKEN}"
+     --header 'Authorization: Bearer ${N8N_MCP_TOKEN}'
 
-3. Restart Claude Code.
+3. Preserve `${N8N_MCP_TOKEN}` literally in the stored header value.
+   Do not expand it before running the command.
 
-4. Verify the server is listed:
-
-   claude mcp list
+4. When you finish, tell me to restart Claude Code. Do not try to
+   verify the server in this session.
 ```
 
 ### Codex prompt
@@ -220,9 +228,8 @@ Set up the n8n MCP server for Codex globally.
    url = "<server-url>"
    bearer_token_env_var = "N8N_MCP_TOKEN"
 
-3. Restart Codex.
-
-4. Verify the n8n MCP server is connected.
+3. When you finish, tell me to restart Codex. Do not try to verify the
+   server in this session.
 ```
 
 The `<server-url>` and `<token>` placeholders are replaced inline before
@@ -247,10 +254,13 @@ Changes:
 
 - Remove the `MCPAccessTokenPopoverTab` import and rendering.
 - Remove the `N8nButton`. Replace with `McpAccessToggle` bound to
-  `mcpStore.mcpAccessEnabled` with `mcpStore.mcpManagedByEnv` mapped to
+  `mcpStore.mcpAccessEnabled`, `isToggling` mapped to `loading`, and
+  `mcpStore.mcpManagedByEnv` mapped to both `disabled` and
   `managedByEnv`.
 - Replace the existing `enableMcpAccess` handler with a unified
-  toggle handler that calls `mcpStore.setMcpAccessEnabled(value)`.
+  toggle handler that derives `nextValue` from the current
+  `mcpStore.mcpAccessEnabled` value and calls
+  `mcpStore.setMcpAccessEnabled(nextValue)`.
   - On toggle-on success, fire `trackEnableClicked` (before the call)
     and `trackEnabled` (after success), preserving today's semantics.
   - On toggle-off, no telemetry, no error toast for an in-progress
@@ -263,8 +273,10 @@ Changes:
   - on mount when `mcpAccessEnabled` is already `true`,
   - on a successful toggle-on transition, before the prompt panel
     renders.
-- Remove the local computeds `accessToken`, `isKeyRedacted`,
-  `hasResolvedAccessToken`. The prompt component owns those concerns.
+- Keep the local computeds `accessToken`, `isKeyRedacted`, and
+  `hasResolvedAccessToken`. The modal continues to own token fetch and
+  readiness state, and passes the resolved values into the prompt
+  component.
 - Keep `enabledDuringThisOpen`, `surface`, and the
   `handleModalClosed` dismissal-tracking behavior unchanged for the
   first-open-modal variant.
@@ -289,12 +301,16 @@ Changes:
   button), not two cards.
 - Keep the `client`, `serverUrl`, `accessToken`, `isTokenReady`
   props.
+- Keep token fetch, redaction detection, and readiness ownership in the
+  modal. This component only formats the final prompt text.
 - Change the `copy` event payload from
   `[parameter: 'setup-config']` to `[parameter: 'agent-prompt']`.
 
 ### `McpAccessToggle.vue`
 
-No changes to the component itself. It is reused as-is.
+No changes to the component itself. It is reused as-is, and the modal
+adapts to its existing emit contract (`disableMcpAccess` with no
+boolean payload).
 
 ### MCP store
 
@@ -317,8 +333,8 @@ emitting three values to one.
 ### Toggle on
 
 1. User toggles MCP on.
-2. Modal disables the toggle for the duration of the request,
-   `isToggling = true`.
+2. Modal sets `isToggling = true`, which puts the toggle into its
+   loading state for the duration of the request.
 3. Modal calls `experimentStore.trackEnableClicked(surface)`.
 4. Modal calls `mcpStore.setMcpAccessEnabled(true)`.
 5. On success:
@@ -333,7 +349,8 @@ emitting three values to one.
 ### Toggle off
 
 1. User toggles MCP off.
-2. Modal disables the toggle for the duration of the request.
+2. Modal sets `isToggling = true`, which puts the toggle into its
+   loading state for the duration of the request.
 3. Modal calls `mcpStore.setMcpAccessEnabled(false)`.
 4. On success, the prompt panel hides and the pending notice is shown
    again.
@@ -407,7 +424,8 @@ recomputes the prompt body on the new `client` prop.
 
 - `settings.mcp.onboarding.prompt.title`: e.g. "Setup prompt".
 - `settings.mcp.onboarding.prompt.description`: e.g. "Paste this into
-  {client} and it will register the n8n MCP server globally for you."
+  {client} to set up the n8n MCP server. When the agent finishes,
+  restart {client}."
 - `settings.mcp.onboarding.prompt.claudeCode`: full Claude Code prompt
   body with `{serverUrl}` and `{token}` placeholders.
 - `settings.mcp.onboarding.prompt.codex`: full Codex prompt body with
@@ -453,8 +471,9 @@ Add new tests:
 Add or update component-level tests:
 
 - Renders Claude Code prompt when `client === 'claude_code'`. Verify
-  the prompt contains the `claude mcp add --scope user` command and
-  the resolved token / URL.
+  the prompt contains the `claude mcp add --scope user` command, the
+  resolved token / URL in the export step, and the literal
+  `${N8N_MCP_TOKEN}` placeholder in the header.
 - Renders Codex prompt when `client === 'codex'`. Verify it contains
   the `[mcp_servers.n8n]` section and `~/.codex/config.toml` path.
 - When `isTokenReady` is false, the prompt contains the
@@ -522,6 +541,10 @@ value. Coordinate with the experiment owner before shipping.
 - Do not introduce a new modal component; mutate the existing
   `MCPOnboardingClientSetup.vue` and `MCPOnboardingModal.vue`.
 - All user-facing strings continue to go through `@n8n/i18n`.
+- Verify during implementation that the single-quoted Claude Code
+  command stores `${N8N_MCP_TOKEN}` literally in user-scope config. If
+  Claude Code normalizes or expands it eagerly, stop and revise the
+  design before shipping.
 - Render the prompt with `N8nMarkdown` as a fenced code block, matching
   the rendering already used in `MCPOnboardingClientSetup.vue` today.
   This keeps styling, copy-button placement, and font tokens consistent
