@@ -15,7 +15,8 @@
     "eval:pairwise:report": "tsx evaluations/cli/report.ts",
     "eval:pairwise:compare": "tsx evaluations/cli/compare-pairwise.ts",
     "eval:subagent": "tsx evaluations/subagent/cli.ts",
-    "eval:eval-setup-topology": "tsx evaluations/eval-setup-topology/cli.ts"
+    "eval:eval-setup-topology": "tsx evaluations/eval-setup-topology/cli.ts",
+    "eval:data-quality": "tsx evaluations/eval-data-quality/cli.ts"
   },
   "main": "dist/index.js",
   "module": "src/index.ts",
