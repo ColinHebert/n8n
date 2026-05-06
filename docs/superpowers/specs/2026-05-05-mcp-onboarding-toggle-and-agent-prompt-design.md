@@ -215,13 +215,17 @@ Top to bottom:
 Try MCP with Claude Code, Cursor, or Codex
 
 Connect MCP clients like Claude Code and Cursor to build, run,
-and iterate on workflows in your instance
+and iterate on workflows in your instance.
+
+Set it up now, or later in [Settings > Instance-level MCP].
 
                           [ Skip for now ] [ Try MCP ]
 ```
 
 The intro modal is shown only for the first-open experiment variant.
 It is not used by the tile variant.
+`Settings > Instance-level MCP` is an inline route link to the MCP settings
+page, rendered with the app's translated-copy link slot pattern.
 
 ### Setup modal
 
@@ -575,7 +579,11 @@ recomputes the prompt body on the new `client` prop.
   Claude Code, Cursor, or Codex"
 - `settings.mcp.onboarding.intro.description`: for example, "Connect MCP
   clients like Claude Code and Cursor to build, run, and iterate on workflows
-  in your instance"
+  in your instance."
+- `settings.mcp.onboarding.intro.settingsHint`: for example, "Set it up now,
+  or later in {settingsLink}."
+- `settings.mcp.onboarding.intro.settingsLink`: for example, "Settings >
+  Instance-level MCP"
 - `settings.mcp.onboarding.intro.tryIt`: for example, "Try MCP"
 - `settings.mcp.onboarding.intro.skip`: for example, "Skip for now"
 - `settings.mcp.onboarding.prompt.title`: for example, "Setup prompt".
