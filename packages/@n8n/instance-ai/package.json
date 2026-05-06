@@ -17,7 +17,8 @@
     "eval:subagent": "tsx evaluations/subagent/cli.ts",
     "eval:eval-setup-topology": "tsx evaluations/eval-setup-topology/cli.ts",
     "eval:data-quality": "tsx evaluations/eval-data-quality/cli.ts",
-    "eval:end-to-end": "tsx evaluations/eval-end-to-end/cli.ts"
+    "eval:end-to-end": "tsx evaluations/eval-end-to-end/cli.ts",
+    "eval:proactive-offer": "tsx evaluations/eval-proactive-offer/cli.ts"
   },
   "main": "dist/index.js",
   "module": "src/index.ts",
