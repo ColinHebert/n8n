@@ -26,6 +26,7 @@
 - `packages/frontend/editor-ui/src/features/ai/mcpAccess/components/onboarding/MCPOnboardingClientSetup.vue` — rewrite for prompt rendering.
 - `packages/frontend/editor-ui/src/features/ai/mcpAccess/modals/MCPOnboardingModal.vue` — toggle, drop connection panel, own token fetch.
 - `packages/frontend/editor-ui/src/features/ai/mcpAccess/modals/MCPOnboardingModal.test.ts` — update modal tests.
+- `docs/superpowers/specs/2026-05-01-surface-mcp-to-new-cloud-users-design.md` — add a short note pointing to the revised onboarding-modal spec.
 
 ---
 
@@ -55,15 +56,15 @@ it('tracks copied parameter payload with the current variant', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run typecheck to verify it fails**
 
 Run from inside `packages/frontend/editor-ui`:
 
 ```bash
-pnpm test src/experiments/surfaceMcpToNewCloudUsers/stores/surfaceMcpToNewCloudUsers.store.test.ts
+pnpm typecheck
 ```
 
-Expected: TypeScript error / test failure because `'agent-prompt'` is not assignable to `'server-url' | 'access-token' | 'setup-config'`.
+Expected: FAIL with a TypeScript error in `surfaceMcpToNewCloudUsers.store.test.ts` because `'agent-prompt'` is not assignable to `'server-url' | 'access-token' | 'setup-config'`.
 
 - [ ] **Step 3: Narrow the type alias in the store**
 
@@ -79,7 +80,15 @@ with:
 type SurfaceMcpOnboardingParameter = 'agent-prompt';
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run typecheck to verify it passes**
+
+```bash
+pnpm typecheck
+```
+
+Expected: FAIL, but only on the existing `MCPOnboardingModal.vue` call sites that still pass `'server-url'`, `'access-token'`, and `'setup-config'`. This is expected until Task 4 rewires the modal to `'agent-prompt'`.
+
+- [ ] **Step 5: Run the store test to verify behavior still passes**
 
 ```bash
 pnpm test src/experiments/surfaceMcpToNewCloudUsers/stores/surfaceMcpToNewCloudUsers.store.test.ts
@@ -87,7 +96,7 @@ pnpm test src/experiments/surfaceMcpToNewCloudUsers/stores/surfaceMcpToNewCloudU
 
 Expected: PASS for all five tests in the file.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/editor-ui/src/experiments/surfaceMcpToNewCloudUsers/stores/surfaceMcpToNewCloudUsers.store.ts \
@@ -125,16 +134,19 @@ Replace the existing `settings.mcp.onboarding.pending` value:
 "settings.mcp.onboarding.pending": "Toggle MCP access on to reveal your setup prompt.",
 ```
 
-- [ ] **Step 3: Add the five new keys**
+- [ ] **Step 3: Add the six new keys**
 
 Add these lines in the `settings.mcp.onboarding.*` block (place them right after `settings.mcp.onboarding.client.codex`):
 
 ```json
 "settings.mcp.onboarding.prompt.title": "Setup prompt",
+"settings.mcp.onboarding.redacted.notice": "This access token is hidden for security. Rotate the access token in Settings > MCP to copy a new setup prompt.",
 "settings.mcp.onboarding.prompt.description": "Paste this into {client} to set up the n8n MCP server. When the agent finishes, restart {client}.",
 "settings.mcp.onboarding.prompt.claudeCode": "Set up the n8n MCP server for Claude Code globally (available in all projects).\n\n1. Add the environment variable to your shell config (e.g. ~/.zshrc or ~/.bashrc), then reload your shell:\n\n   export N8N_MCP_TOKEN=\"{token}\"\n\n2. Register the MCP server at user scope by running:\n\n   claude mcp add --scope user --transport http n8n \\\n     \"{serverUrl}\" \\\n     --header 'Authorization: Bearer ${N8N_MCP_TOKEN}'\n\n3. Preserve `${N8N_MCP_TOKEN}` literally in the stored header value. Do not expand it before running the command.\n\n4. When you finish, tell me to restart Claude Code. Do not try to verify the server in this session.",
 "settings.mcp.onboarding.prompt.codex": "Set up the n8n MCP server for Codex globally.\n\n1. Add the environment variable to your shell config (e.g. ~/.zshrc or ~/.bashrc), then reload your shell:\n\n   export N8N_MCP_TOKEN=\"{token}\"\n\n2. Add the following to ~/.codex/config.toml (create the file and directory if they do not exist; if the file already exists, append the section without removing existing config):\n\n   [mcp_servers.n8n]\n   url = \"{serverUrl}\"\n   bearer_token_env_var = \"N8N_MCP_TOKEN\"\n\n3. When you finish, tell me to restart Codex. Do not try to verify the server in this session.",
 ```
+
+Use vue-i18n literal-message syntax for the Claude prompt's shell placeholder when you apply this block in `en.json`: encode `${N8N_MCP_TOKEN}` as `${'{N8N_MCP_TOKEN}'}` so the rendered output still contains the literal `${N8N_MCP_TOKEN}`.
 
 - [ ] **Step 4: Verify the JSON parses**
 
@@ -416,11 +428,41 @@ git commit -m "refactor(editor): render agent prompt in MCP onboarding setup com
 - Modify: `packages/frontend/editor-ui/src/features/ai/mcpAccess/modals/MCPOnboardingModal.vue`
 - Modify: `packages/frontend/editor-ui/src/features/ai/mcpAccess/modals/MCPOnboardingModal.test.ts`
 
-The modal swaps the `N8nButton` for `McpAccessToggle`, owns `getOrCreateApiKey()` (previously called from the removed `MCPAccessTokenPopoverTab`), and forwards copy events to `trackCopiedParameter(..., 'agent-prompt')`.
+The modal swaps the `N8nButton` for `McpAccessToggle`, owns `getOrCreateApiKey()` (previously called from the removed `MCPAccessTokenPopoverTab`), forwards copy events to `trackCopiedParameter(..., 'agent-prompt')`, and shows a warning notice when the resolved token is redacted.
 
 - [ ] **Step 1: Update the existing tests in `MCPOnboardingModal.test.ts`**
 
-The existing `Modal` stub (lines 59–67) and the existing `vi.mock` setup for clipboard, toast, root store, and the experiment store (lines 7–41) all stay as-is — they still apply to the new tests. Only the `MockMcpStore` type and the test bodies change.
+The existing `vi.mock` setup for clipboard, toast, root store, and the experiment store (lines 7–41) all stay as-is. Update the render stubs so `ElSwitch` behaves predictably in jsdom, then replace the `MockMcpStore` type and the test bodies.
+
+Replace the current `renderComponent` block (lines 69–80) with:
+
+```ts
+const renderComponent = createComponentRenderer(MCPOnboardingModal, {
+    props: {
+        data: {
+            surface: 'first_open_modal',
+        },
+    },
+    global: {
+        stubs: {
+            Modal: ModalStub,
+            ElSwitch: {
+                props: ['modelValue', 'disabled', 'loading'],
+                template: `
+                    <button
+                        type="button"
+                        role="switch"
+                        :data-test-id="$attrs['data-test-id']"
+                        :aria-checked="String(!!modelValue)"
+                        :disabled="disabled || loading"
+                        @click="$emit('update:model-value', !modelValue)"
+                    />
+                `,
+            },
+        },
+    },
+});
+```
 
 Replace the mock-store typing (lines 43–57) with the new behaviour. Replace these two type/setup blocks:
 
@@ -470,7 +512,7 @@ mockMcpStore = reactive({
 }) as MockMcpStore;
 ```
 
-Replace the three existing tests (lines 103–142) with these five tests:
+Replace the three existing tests (lines 103–142) with these six tests:
 
 ```ts
 it('enables MCP via the toggle and renders the prompt inline', async () => {
@@ -494,13 +536,28 @@ it('disables MCP via the toggle when already enabled', async () => {
     mockMcpStore.currentUserMCPKey = { apiKey: 'n8n-test-token' };
 
     const user = userEvent.setup();
-    const { getByTestId } = renderComponent();
+    const { getByTestId, queryByTestId } = renderComponent();
+
+    expect(getByTestId('mcp-onboarding-client-setup')).toBeInTheDocument();
 
     await user.click(getByTestId('mcp-access-toggle'));
 
     expect(mockMcpStore.setMcpAccessEnabled).toHaveBeenCalledWith(false);
     expect(mockExperimentStore.trackEnableClicked).not.toHaveBeenCalled();
     expect(mockExperimentStore.trackEnabled).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+        expect(queryByTestId('mcp-onboarding-client-setup')).not.toBeInTheDocument();
+    });
+    expect(getByTestId('mcp-onboarding-pending-notice')).toBeInTheDocument();
+});
+
+it('renders a disabled toggle when MCP is managed by environment', () => {
+    mockMcpStore.mcpManagedByEnv = true;
+
+    const { getByTestId } = renderComponent();
+
+    expect(getByTestId('mcp-access-toggle')).toBeDisabled();
 });
 
 it('renders the prompt immediately when MCP is already enabled on mount', async () => {
@@ -574,7 +631,7 @@ import { N8nNotice, N8nRadioButtons, N8nText } from '@n8n/design-system';
 import { useI18n } from '@n8n/i18n';
 import { useRootStore } from '@n8n/stores/useRootStore';
 import { createEventBus } from '@n8n/utils/event-bus';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 type MCPOnboardingClient = 'claude_code' | 'codex';
 type MCPOnboardingSurface = 'tile' | 'first_open_modal';
@@ -793,7 +850,7 @@ The `<style module>` block at the bottom of the file (lines 187–214) currently
 pnpm test src/features/ai/mcpAccess/modals/MCPOnboardingModal.test.ts
 ```
 
-Expected: PASS for all five tests.
+Expected: PASS for all six tests.
 
 - [ ] **Step 7: Re-run the prompt component tests to verify no regression**
 
@@ -813,7 +870,45 @@ git commit -m "refactor(editor): replace MCP onboarding button with toggle and p
 
 ---
 
-## Task 5: Repository-wide lint and typecheck
+## Task 5: Update the original experiment design doc
+
+**Files:**
+
+- Modify: `docs/superpowers/specs/2026-05-01-surface-mcp-to-new-cloud-users-design.md:130-170`
+
+- [ ] **Step 1: Add a note pointing to the revised onboarding spec**
+
+Insert this block immediately after `### Shared setup experience`:
+
+```md
+> Note (2026-05-05): The onboarding-modal design changed after this
+> draft. The current source of truth for the modal is
+> `docs/superpowers/specs/2026-05-05-mcp-onboarding-toggle-and-agent-prompt-design.md`.
+> It replaces the one-shot enable button, connection details panel, and
+> two-card manual setup with a bidirectional toggle and a single agent
+> setup prompt.
+```
+
+- [ ] **Step 2: Verify the doc still formats cleanly**
+
+Run from the repository root:
+
+```bash
+pnpm exec prettier --check docs/superpowers/specs/2026-05-01-surface-mcp-to-new-cloud-users-design.md
+```
+
+Expected: PASS with Prettier reporting the file is correctly formatted.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/superpowers/specs/2026-05-01-surface-mcp-to-new-cloud-users-design.md
+git commit -m "docs(spec): point MCP experiment doc to revised onboarding design"
+```
+
+---
+
+## Task 6: Repository-wide lint and typecheck
 
 **Files:** none (verification only).
 
@@ -875,7 +970,7 @@ The spec calls out that the single-quoted `claude mcp add` command must store `$
 3. After Claude Code runs `claude mcp add ...`, inspect the user-scope config (typically `~/.claude.json`; path may vary by Claude Code version) and confirm the stored header value contains the literal text `${N8N_MCP_TOKEN}`, not the expanded token.
 4. Restart Claude Code and run a workflow tool from the n8n MCP server to confirm the env-var indirection actually resolves at connect time.
 
-If step 3 shows the expanded token instead of the literal placeholder, **stop and revise the spec** before shipping. The fallback options are documented in the spec's "Open issues" section under "Token redaction on re-enable" (re-using the same path) and in the spec's "Implementation notes" section.
+If step 3 shows the expanded token instead of the literal placeholder, **stop and update both this plan and `docs/superpowers/specs/2026-05-05-mcp-onboarding-toggle-and-agent-prompt-design.md` before shipping.** Do not merge the current Claude Code flow as-is.
 
 ---
 
@@ -884,5 +979,7 @@ If step 3 shows the expanded token instead of the literal placeholder, **stop an
 - All seven test files in the affected paths pass.
 - `pnpm typecheck` and `pnpm lint` succeed for `packages/frontend/editor-ui`.
 - The onboarding modal renders the toggle, renders the agent prompt panel only when MCP is enabled, and copies a prompt body containing `claude mcp add --scope user` (Claude Code) or `[mcp_servers.n8n]` (Codex) with the resolved token interpolated and the literal `${N8N_MCP_TOKEN}` placeholder preserved in the header.
+- When `getOrCreateApiKey()` returns a redacted token, the modal shows a recovery notice pointing users to `Settings > MCP` and keeps prompt copy disabled.
 - No code path references the dropped i18n keys (`settings.mcp.onboarding.enable`, `step.env`, `step.config`, `claudeCode.path`, `codex.path`).
+- `docs/superpowers/specs/2026-05-01-surface-mcp-to-new-cloud-users-design.md` contains a short note pointing to the revised onboarding-modal spec.
 - Each task ends in a single commit with a Conventional Commits prefix matching the existing repo style (`feat`, `refactor`, `chore`).

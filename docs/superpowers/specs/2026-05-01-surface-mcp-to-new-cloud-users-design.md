@@ -129,11 +129,19 @@ Behavior:
 
 ### Shared setup experience
 
-Both experiment variants use the same `McpOnboardingModal`.
+Note: the modal-specific interaction details in this document are superseded
+by
+`docs/superpowers/specs/2026-05-05-mcp-onboarding-toggle-and-agent-prompt-design.md`.
+Read this older doc for experiment-surface context only, and use the newer
+spec as the source of truth for current modal behavior.
 
-The onboarding modal is a single-screen UI, not a wizard.
+Both experiment variants were originally intended to use the same
+`McpOnboardingModal`.
 
-It should contain:
+The original draft described the onboarding modal as a single-screen UI, not a
+wizard.
+
+That draft modal outline included:
 
 - a short explanation of why MCP is useful,
 - client-specific instruction switching for:
@@ -144,16 +152,17 @@ It should contain:
 
 ### Single-screen enable flow
 
-The modal should not split enablement and setup into separate steps.
+The original draft also assumed the modal would not split enablement and setup
+into separate steps.
 
-The same screen should:
+In that version, the same screen would:
 
 - show the setup instructions,
 - allow enabling MCP,
 - update in place after MCP is enabled,
 - reveal real connection details without navigation.
 
-After the user clicks enable:
+After the user clicked enable, the draft flow was:
 
 1. enable instance-level MCP access,
 2. automatically fetch or create the MCP token,

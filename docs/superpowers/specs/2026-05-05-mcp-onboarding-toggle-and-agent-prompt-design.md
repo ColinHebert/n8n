@@ -1,12 +1,15 @@
-# MCP Onboarding Modal: Toggle and Agent Prompt Design
+# MCP Onboarding: Intro Gate, Toggle, and Agent Prompt Design
 
 ## Summary
 
-Refactor the surface-MCP onboarding modal so that:
+Refactor the surface-MCP onboarding flow so that:
 
-1. Enabling MCP access uses a bidirectional toggle instead of a one-shot
-   button.
-2. The two-step manual setup (env var + config file) and the connection
+1. The `variant-first-open-modal` experiment arm auto-opens a lightweight
+   intro modal that announces MCP and lets the user either try it now or
+   skip for now.
+2. Enabling MCP access inside the setup modal uses a bidirectional toggle
+   instead of a one-shot button.
+3. The two-step manual setup (env var + config file) and the connection
    details panel (URL / token / Configuration JSON) are replaced with a
    single agent setup prompt that the user pastes into Claude Code or
    Codex. The agent performs the shell or config changes, then tells the
@@ -21,6 +24,8 @@ or Codex.
 - Reduce the onboarding flow from "toggle + read connection details +
   set env var + edit config file" to "toggle + paste prompt + restart
   the client".
+- Add an explicit opt-in step before the setup modal for the auto-open
+  first-open experiment variant.
 - Use a toggle to make the enabled / disabled state explicit and
   reversible inside the onboarding surface.
 - Register the MCP server **globally** (user scope) so it works in every
@@ -33,10 +38,12 @@ or Codex.
 ## Non-goals
 
 - Redesign the existing `Settings > MCP` page.
-- Add new MCP clients beyond Claude Code and Codex.
+- Add new MCP clients beyond Claude Code, Cursor, and Codex.
 - Add a per-project setup option in this iteration.
-- Solve the pre-existing token-redaction issue for re-enable flows
-  (called out in Open issues).
+- Add in-modal token rotation. Redacted tokens still require going to
+  `Settings > MCP`.
+- Redesign the tile variant flow. It continues to open the setup modal
+  directly.
 - Change MCP store APIs.
 
 ## Current repo facts
@@ -44,18 +51,16 @@ or Codex.
 - `MCPOnboardingModal.vue` lives at
   `packages/frontend/editor-ui/src/features/ai/mcpAccess/modals/MCPOnboardingModal.vue`.
   It currently renders:
-  - a primary `Enable MCP access` `N8nButton`,
-  - a connection details panel via `MCPAccessTokenPopoverTab`
-    (server URL, access token, Configuration JSON, "you won't see it
-    again" notice),
-  - a setup component `MCPOnboardingClientSetup` that renders two
-    cards: "Set an environment variable" and "Add this MCP config".
+  - a `McpAccessToggle`,
+  - a pending notice while MCP is disabled,
+  - a redacted-token recovery notice when needed,
+  - a setup component `MCPOnboardingClientSetup` when MCP is enabled.
 - `MCPOnboardingClientSetup.vue` lives at
   `packages/frontend/editor-ui/src/features/ai/mcpAccess/components/onboarding/MCPOnboardingClientSetup.vue`.
   It computes:
-  - an `export N8N_MCP_TOKEN=...` snippet,
-  - a Claude Code `.mcp.json` snippet,
-  - a Codex `.codex/config.toml` snippet (project-local).
+  - a client-specific prompt body,
+  - a fenced-code rendering of that prompt,
+  - a single copy action for the full prompt.
 - `McpAccessToggle.vue` already exists at
   `packages/frontend/editor-ui/src/features/ai/mcpAccess/components/header/McpAccessToggle.vue`
   and supports `modelValue`, `disabled`, `loading`, `managedByEnv`. It is
@@ -69,9 +74,42 @@ or Codex.
   `packages/frontend/editor-ui/src/experiments/surfaceMcpToNewCloudUsers/stores/surfaceMcpToNewCloudUsers.store.ts`
   exposes telemetry helpers including
   `trackCopiedParameter(surface, client, parameter)` with
-  `parameter` typed as `'server-url' | 'access-token' | 'setup-config'`.
+  `parameter` typed as `'agent-prompt'`.
+- `WorkflowsView.vue` currently auto-opens the shared setup modal once
+  for `variant-first-open-modal` by calling
+  `uiStore.openModalWithData({ name: MCP_ONBOARDING_MODAL_KEY, data: { surface: 'first_open_modal' } })`.
+- `EmptyStateLayout.vue` currently opens the shared setup modal directly
+  from the MCP tile. That tile flow already works and does not need the
+  new intro gate.
 
 ## Product decisions
+
+### First-open variant introduces an opt-in intro modal
+
+Only the `variant-first-open-modal` arm changes. Instead of auto-opening
+the setup modal directly, it auto-opens a lightweight intro modal.
+
+The intro modal announces MCP and offers two actions:
+
+- `Try MCP`
+- `Skip for now`
+
+If the user clicks `Try MCP`, the intro modal closes and the existing
+setup modal opens immediately with `surface: 'first_open_modal'`.
+
+If the user clicks `Skip for now`, or closes the intro modal through the
+close icon, backdrop, or escape key, the intro modal counts as dismissed.
+It will not auto-open again for this experiment, and the existing empty
+state reminder continues to tell the user that they can opt in later in
+`Settings > MCP`.
+
+### Tile variant stays direct-to-setup
+
+The tile variant is unchanged. Clicking the MCP tile continues to open
+the existing setup modal directly.
+
+The new intro modal is only a gate for the auto-open first-open
+experiment arm.
 
 ### Toggle replaces the enable button
 
@@ -92,7 +130,7 @@ JSON, "you won't see it again" notice) is removed.
 The two-step manual setup is removed.
 
 In their place, a single panel renders a setup prompt that the user
-copies and pastes into their agent (Claude Code or Codex). The agent
+copies and pastes into their agent (Claude Code, Cursor, or Codex). The agent
 performs the file or CLI changes, then tells the user to restart the
 client. Verification happens after restart, not in the same pasted
 session.
@@ -109,11 +147,11 @@ This differs from the previous project-local `.mcp.json` flow.
 
 ### Env-var indirection is preserved
 
-The token is referenced from the agent config via a literal
-`${N8N_MCP_TOKEN}` placeholder for Claude Code and
-`bearer_token_env_var` for Codex. The user is instructed to set the env
-var in their shell config (e.g. `~/.zshrc`, `~/.bashrc`). The token does
-not end up written into the config file as a literal string.
+The token is referenced from the agent config using env-var indirection:
+`${N8N_MCP_TOKEN}` for Claude Code, `${env:N8N_MCP_TOKEN}` for Cursor, and
+`bearer_token_env_var` for Codex. The user is instructed to set the env var in
+their shell config, such as `~/.zshrc` or `~/.bashrc`. The token does not end up
+written into the config file as a literal string.
 
 ### Claude Code uses the `claude mcp add` CLI
 
@@ -142,13 +180,23 @@ url = "<server-url>"
 bearer_token_env_var = "N8N_MCP_TOKEN"
 ```
 
+### Cursor edits `~/.cursor/mcp.json`
+
+Cursor setup is defined in the Cursor addendum spec at
+`docs/superpowers/specs/2026-05-06-cursor-mcp-client-setup-design.md`.
+The prompt instructs the agent to merge an `n8n` server entry into
+`~/.cursor/mcp.json` using Cursor's remote MCP server format and
+`${env:N8N_MCP_TOKEN}` interpolation.
+
 ### No rotate affordance in the modal
 
 The modal does not expose token rotation. Users who need to rotate go
 to `Settings > MCP`. This decision is intentional for PoC scope.
 
-The implication is documented under Open issues (token redaction on
-re-enable).
+When `getOrCreateApiKey()` returns a redacted token, the modal shows a
+warning notice that points users to `Settings > MCP` to rotate the
+token. The prompt still renders with `<your-access-token>` and a
+disabled copy button.
 
 ### No telemetry for toggle-off
 
@@ -157,15 +205,33 @@ in this iteration. `trackEnableClicked` and `trackEnabled` continue to
 fire only on toggle-on transitions. This keeps the experiment readout
 focused on the metric of interest (enable rate by surface).
 
-## Final modal layout
+## Final modal layouts
+
+### First-open intro modal
+
+Top to bottom:
+
+```
+Try MCP with Claude Code, Cursor, or Codex
+
+Connect MCP clients like Claude Code and Cursor to build, run,
+and iterate on workflows in your instance
+
+                          [ Skip for now ] [ Try MCP ]
+```
+
+The intro modal is shown only for the first-open experiment variant.
+It is not used by the tile variant.
+
+### Setup modal
 
 Top to bottom:
 
 ```
 Set up MCP for your instance
-Connect Claude Code or Codex...
+Connect MCP clients like Claude Code and Cursor...
 
-[ Claude Code | Codex ]              [ ⬤ Toggle ]
+[ Claude Code | Cursor | Codex ]              [ ⬤ Toggle ]
 
   --- Toggle OFF ---
   Notice: "Toggle MCP access on to reveal your setup prompt."
@@ -180,7 +246,7 @@ Connect Claude Code or Codex...
                                               [ Copy ]
 ```
 
-The `Claude Code | Codex` radio remains. Switching the radio swaps the
+The `Claude Code | Cursor | Codex` radio remains. Switching the radio swaps the
 prompt body in place. The toggle remains visible in both states.
 
 ## Prompt content
@@ -239,6 +305,45 @@ disabled.
 
 ## Component boundaries
 
+### `SurfaceMcpFirstOpenIntroModal.vue`
+
+Responsibility:
+
+- render the first-open intro copy,
+- handle `Try MCP` vs `Skip for now`,
+- treat close-icon / backdrop / escape closes as skip,
+- open the existing setup modal when the user opts in.
+
+Changes:
+
+- Create a new experiment-scoped intro modal component under
+  `packages/frontend/editor-ui/src/experiments/surfaceMcpToNewCloudUsers/...`.
+- Add a local event bus so the modal can treat generic close paths as the
+  same action as `Skip for now`.
+- On `Try MCP`:
+  - close the intro modal,
+  - do **not** track dismissal,
+  - open `MCPOnboardingModal` with `surface: 'first_open_modal'`.
+- On `Skip for now`, or generic modal close:
+  - call `surfaceMcpStore.dismissFirstOpenModal()`,
+  - call `surfaceMcpStore.trackDismissed('first_open_modal')`.
+
+### `WorkflowsView.vue`
+
+Responsibility:
+
+- decide when the first-open experiment arm should auto-open its intro
+  modal.
+
+Changes:
+
+- Keep the existing eligibility and simplified-layout gates.
+- Change the auto-open target from `MCPOnboardingModal` to the new intro
+  modal.
+- Keep `markFirstEligibleOpenSeen()`, `trackSurfaced('first_open_modal')`,
+  and `trackOpened('first_open_modal')` attached to the auto-open moment.
+- Do not change the tile behavior.
+
 ### `MCPOnboardingModal.vue`
 
 Responsibility:
@@ -277,9 +382,12 @@ Changes:
   `hasResolvedAccessToken`. The modal continues to own token fetch and
   readiness state, and passes the resolved values into the prompt
   component.
+- Render a warning notice when `isKeyRedacted` is `true`, pointing users
+  to `Settings > MCP` to rotate the token before copying a new setup
+  prompt.
 - Keep `enabledDuringThisOpen`, `surface`, and the
   `handleModalClosed` dismissal-tracking behavior unchanged for the
-  first-open-modal variant.
+  first-open-modal setup path after the user has clicked `Try MCP`.
 - Forward copy events from the prompt component to
   `experimentStore.trackCopiedParameter(surface, client, 'agent-prompt')`.
 
@@ -328,7 +436,48 @@ Update the `SurfaceMcpOnboardingParameter` type alias:
 `parameter` union narrows. Existing call sites in the modal go from
 emitting three values to one.
 
+No new persistence API is needed for the intro modal. Reuse the existing
+`markFirstEligibleOpenSeen()` and `dismissFirstOpenModal()` behavior.
+
 ## Data flow
+
+### First-open auto-open
+
+1. User lands in the eligible empty workflows experience.
+2. `WorkflowsView.vue` checks:
+   - simplified layout is visible,
+   - MCP experiment eligibility is true,
+   - `variant-first-open-modal` is active,
+   - `hasSeenFirstEligibleOpen` is false.
+3. `WorkflowsView.vue` calls `markFirstEligibleOpenSeen()`.
+4. `WorkflowsView.vue` fires:
+   - `trackSurfaced('first_open_modal')`,
+   - `trackOpened('first_open_modal')`.
+5. `WorkflowsView.vue` opens the new intro modal.
+
+### Try MCP
+
+1. User clicks `Try MCP` in the intro modal.
+2. The intro modal closes without calling dismissal telemetry.
+3. The intro modal opens `MCPOnboardingModal` with
+   `surface: 'first_open_modal'`.
+
+### Skip for now
+
+1. User clicks `Skip for now`, or closes the intro modal through a
+   generic close path.
+2. The intro modal calls `dismissFirstOpenModal()`.
+3. The intro modal fires `trackDismissed('first_open_modal')`.
+4. The intro modal will not auto-open again for this experiment.
+5. The empty state reminder becomes visible.
+
+### Setup modal closed after Try MCP
+
+1. User clicks `Try MCP`.
+2. The setup modal opens.
+3. If the user closes the setup modal without enabling MCP, the existing
+   setup-modal dismissal path runs.
+4. The user lands in the same dismissed state as `Skip for now`.
 
 ### Toggle on
 
@@ -414,7 +563,7 @@ recomputes the prompt body on the new `client` prop.
 ### Modify
 
 - `settings.mcp.onboarding.pending`: change to a toggle-based prompt,
-  e.g. "Toggle MCP access on to reveal your setup prompt."
+  for example, "Toggle MCP access on to reveal your setup prompt."
 - `settings.mcp.onboarding.enable`: no longer used as a button label.
   Remove the key. The toggle uses
   `settings.mcp.header.toggle.enabled` /
@@ -422,12 +571,24 @@ recomputes the prompt body on the new `client` prop.
 
 ### Add
 
-- `settings.mcp.onboarding.prompt.title`: e.g. "Setup prompt".
-- `settings.mcp.onboarding.prompt.description`: e.g. "Paste this into
-  {client} to set up the n8n MCP server. When the agent finishes,
-  restart {client}."
+- `settings.mcp.onboarding.intro.title`: for example, "Try MCP with
+  Claude Code, Cursor, or Codex"
+- `settings.mcp.onboarding.intro.description`: for example, "Connect MCP
+  clients like Claude Code and Cursor to build, run, and iterate on workflows
+  in your instance"
+- `settings.mcp.onboarding.intro.tryIt`: for example, "Try MCP"
+- `settings.mcp.onboarding.intro.skip`: for example, "Skip for now"
+- `settings.mcp.onboarding.prompt.title`: for example, "Setup prompt".
+- `settings.mcp.onboarding.redacted.notice`: for example, "This access token
+  is hidden for security. Rotate the access token in Settings > MCP to copy a
+  new setup prompt."
+- `settings.mcp.onboarding.prompt.description`: for example, "Paste this into
+  {client} to set up the n8n MCP server. When the agent finishes, restart
+  {client}."
 - `settings.mcp.onboarding.prompt.claudeCode`: full Claude Code prompt
   body with `{serverUrl}` and `{token}` placeholders.
+- `settings.mcp.onboarding.prompt.cursor`: full Cursor prompt body with
+  `{serverUrl}` and `{token}` placeholders.
 - `settings.mcp.onboarding.prompt.codex`: full Codex prompt body with
   `{serverUrl}` and `{token}` placeholders.
 
@@ -435,17 +596,39 @@ The reusable `generic.copy` key is reused for the copy button label.
 
 ## Telemetry
 
+- `trackSurfaced('first_open_modal')` and `trackOpened('first_open_modal')`
+  now refer to the intro modal auto-open event, not the setup modal.
+- `trackDismissed('first_open_modal')` fires when:
+  - the user skips the intro modal,
+  - the user closes the intro modal through a generic close path,
+  - the user clicks `Try MCP`, then later closes the setup modal without
+    enabling MCP.
 - `trackCopiedParameter` payload: `parameter` becomes `'agent-prompt'`
   for the only remaining copyable item. The PostHog readout for this
   experiment must be told about the rename.
 - `trackEnableClicked` and `trackEnabled` continue to fire only on
   toggle-on transitions.
-- `trackDismissed` continues to fire only when the first-open-modal is
-  closed without enabling, identical to today.
 - `trackClientSelected` is unchanged.
 - No new event for toggle-off.
 
 ## Testing
+
+### `WorkflowsView.test.ts`
+
+Update the first-open experiment tests:
+
+- auto-open now targets the new intro modal key, not the setup modal key,
+- tile variant still does not auto-open anything,
+- seen / dismissed state still prevents future auto-open.
+
+### First-open intro modal tests
+
+Add a new component test file for the intro modal:
+
+- renders the intro title, description, and both CTAs,
+- clicking `Try MCP` closes the intro modal and opens the setup modal,
+- clicking `Skip for now` dismisses the experiment and tracks dismissal,
+- close-icon / backdrop / escape close path is treated the same as skip.
 
 ### `MCPOnboardingModal.test.ts`
 
@@ -464,6 +647,8 @@ Add new tests:
 - Toggling off calls `setMcpAccessEnabled(false)` and hides the prompt
   panel.
 - Toggle is disabled when `mcpManagedByEnv` is true.
+- When a mounted or newly resolved token is redacted, the recovery
+  notice is shown and the prompt copy button stays disabled.
 - Copy emits `trackCopiedParameter` with `'agent-prompt'`.
 
 ### `MCPOnboardingClientSetup` tests
@@ -493,6 +678,7 @@ narrower `parameter` union: tests for `'server-url'` and
 - Full MCP settings page regression coverage.
 - Non-admin permission branching.
 - Network error retry UX beyond toast-based feedback.
+- Changing the tile variant to use the intro modal.
 
 ## Open issues
 
@@ -504,18 +690,14 @@ user who toggles off, then on, will see the prompt rendered with
 `<your-access-token>` placeholder text and a disabled copy button. The
 agent cannot configure access from such a prompt without rotation.
 
-This is pre-existing behavior in the current modal: the
-`accessToken` computed already substitutes `<your-access-token>` when
-the key is redacted, and there is no rotate affordance in this modal
-today.
+This iteration now mitigates that dead end by showing a warning notice
+that directs the user to `Settings > MCP` to rotate the token.
 
-This iteration does not solve it. If we want to solve it later, the
-options are:
+This iteration still does not allow in-modal rotation. If we want to
+improve it later, the options are:
 
 - add a small rotate-token affordance to the prompt panel that calls
   `mcpStore.generateNewApiKey()`,
-- detect the redacted state and show a banner pointing the user to
-  `Settings > MCP` to rotate,
 - always rotate when MCP is enabled from this modal.
 
 ### Claude Code CLI availability
@@ -534,12 +716,11 @@ value. Coordinate with the experiment owner before shipping.
 ## Implementation notes
 
 - Keep all changes within
-  `packages/frontend/editor-ui/src/features/ai/mcpAccess/...` and the
-  experiment store under
+  `packages/frontend/editor-ui/src/features/ai/mcpAccess/...` and
   `packages/frontend/editor-ui/src/experiments/surfaceMcpToNewCloudUsers/...`
   so the experiment is still trivial to remove.
-- Do not introduce a new modal component; mutate the existing
-  `MCPOnboardingClientSetup.vue` and `MCPOnboardingModal.vue`.
+- Introduce exactly one new experiment-scoped intro modal component.
+  Keep the setup surface as the existing `MCPOnboardingModal.vue`.
 - All user-facing strings continue to go through `@n8n/i18n`.
 - Verify during implementation that the single-quoted Claude Code
   command stores `${N8N_MCP_TOKEN}` literally in user-scope config. If
