@@ -706,7 +706,7 @@ export class FrontendService {
 						(property) => property.name !== 'jweEnabled' && property.name !== 'jwksUriNotice',
 					);
 				} else {
-					const jwksUri = `${this.urlService.getInstanceBaseUrl()}/${this.globalConfig.endpoints.rest}/.well-known/jwks.json`;
+					const jwksUri = this.urlService.getInstanceJwksUri();
 					credential.properties = credential.properties.map((property) =>
 						property.name === 'jwksUriNotice'
 							? {
