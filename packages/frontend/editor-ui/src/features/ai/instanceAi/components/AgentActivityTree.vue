@@ -109,12 +109,16 @@ function resolveArtifactName(artifact: ArtifactInfo): string {
 
 <style lang="scss" module>
 .reasoningTrigger {
-	/* stylelint-disable-next-line @n8n/css-var-naming -- design-system token */
-	color: var(--text-color--subtler);
+	color: var(--color--text--tint-2);
 }
 
 .artifactCard {
 	max-width: 90%;
+	margin: var(--spacing--sm) 0;
+
+	+ .artifactCard {
+		margin-top: 0;
+	}
 }
 
 .reasoningContent {

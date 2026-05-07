@@ -65,6 +65,7 @@ export const defaultSettings: FrontendSettings = {
 	logLevel: 'info',
 	maxExecutionTimeout: 0,
 	oauthCallbackUrls: { oauth1: '', oauth2: '' },
+	jwksUri: '',
 	personalizationSurveyEnabled: false,
 	releaseChannel: 'stable',
 	posthog: {
@@ -117,6 +118,7 @@ export const defaultSettings: FrontendSettings = {
 	nodeJsVersion: '',
 	nodeEnv: '',
 	concurrency: -1,
+	evaluationConcurrencyLimit: -1,
 	versionNotifications: {
 		enabled: true,
 		endpoint: '',
@@ -129,6 +131,7 @@ export const defaultSettings: FrontendSettings = {
 	},
 	workflowCallerPolicyDefaultOption: 'any',
 	workflowTagsDisabled: false,
+	workflowsAutosaveDisabled: false,
 	variables: {
 		limit: -1,
 	},
