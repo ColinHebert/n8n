@@ -2669,12 +2669,16 @@ describe('OauthService', () => {
 			jest.spyOn(service, 'encryptAndSaveData').mockResolvedValue(undefined);
 		});
 
-		async function runDcr(jweEnabled: boolean | undefined) {
+		async function runDcr(
+			jweEnabled: boolean | undefined,
+			inlineJwks: boolean | undefined = undefined,
+		) {
 			const credential = mock<CredentialsEntity>({ id: '1', type: 'oAuth2Api' });
 			jest.spyOn(service, 'getOAuthCredentials').mockResolvedValue({
 				serverUrl: 'https://example.domain',
 				useDynamicClientRegistration: true,
 				jweEnabled,
+				inlineJwks,
 			} as OAuth2CredentialData);
 
 			await service.generateAOauth2AuthUri(credential, {
@@ -2688,35 +2692,53 @@ describe('OauthService', () => {
 		}
 
 		it.each([
-			['jweEnabled=false', false],
-			['jweEnabled=true', true],
-			['jweEnabled=undefined', undefined],
+			['jweEnabled=false, inlineJwks=undefined', false, undefined],
+			['jweEnabled=true, inlineJwks=false', true, false],
+			['jweEnabled=undefined, inlineJwks=true', undefined, true],
 		])(
-			'forwards the credential opt-in flag to the proxy and spreads its return into the payload (%s)',
-			async (_label, jweEnabled) => {
+			'forwards both opt-in flags to the proxy and spreads its return into the payload (%s)',
+			async (_label, jweEnabled, inlineJwks) => {
 				oauthJweServiceProxy.getDcrJweFields.mockResolvedValue({});
 
-				const payload = await runDcr(jweEnabled);
+				const payload = await runDcr(jweEnabled, inlineJwks);
 
-				expect(oauthJweServiceProxy.getDcrJweFields).toHaveBeenCalledWith(jweEnabled === true);
+				expect(oauthJweServiceProxy.getDcrJweFields).toHaveBeenCalledWith(
+					jweEnabled === true,
+					inlineJwks === true,
+				);
 				expect(payload).not.toHaveProperty('jwks_uri');
+				expect(payload).not.toHaveProperty('jwks');
 				expect(payload).not.toHaveProperty('id_token_encrypted_response_alg');
 				expect(payload).not.toHaveProperty('id_token_encrypted_response_enc');
 			},
 		);
 
-		it('includes the JWE fields the proxy returns', async () => {
+		it('includes jwks_uri (not jwks) when the proxy returns the URI shape', async () => {
 			const fields = {
 				jwks_uri: 'http://localhost:5678/rest/.well-known/jwks.json',
 				id_token_encrypted_response_alg: 'RSA-OAEP-256',
 			};
 			oauthJweServiceProxy.getDcrJweFields.mockResolvedValue(fields);
 
-			const payload = await runDcr(true);
+			const payload = await runDcr(true, false);
 
 			expect(payload).toMatchObject(fields);
+			expect(payload).not.toHaveProperty('jwks');
 			// We deliberately leave `enc` for the IdP to choose.
 			expect(payload).not.toHaveProperty('id_token_encrypted_response_enc');
+		});
+
+		it('includes jwks (not jwks_uri) when the proxy returns the inline shape', async () => {
+			const fields = {
+				jwks: { keys: [{ kty: 'RSA', alg: 'RSA-OAEP-256', kid: 'kid-1', n: 'n', e: 'AQAB' }] },
+				id_token_encrypted_response_alg: 'RSA-OAEP-256',
+			};
+			oauthJweServiceProxy.getDcrJweFields.mockResolvedValue(fields);
+
+			const payload = await runDcr(true, true);
+
+			expect(payload).toMatchObject(fields);
+			expect(payload).not.toHaveProperty('jwks_uri');
 		});
 
 		it('propagates errors thrown by the proxy', async () => {

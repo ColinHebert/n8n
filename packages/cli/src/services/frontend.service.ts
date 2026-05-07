@@ -702,8 +702,9 @@ export class FrontendService {
 			if (credential.name === 'oAuth2Api' && credential.properties) {
 				const isOAuth2JweEnabled = process.env.N8N_ENV_FEAT_OAUTH2_JWE === 'true';
 				if (!isOAuth2JweEnabled) {
+					const jweOnlyFields = new Set(['jweEnabled', 'jwksUriNotice', 'inlineJwks']);
 					credential.properties = credential.properties.filter(
-						(property) => property.name !== 'jweEnabled' && property.name !== 'jwksUriNotice',
+						(property) => !jweOnlyFields.has(property.name),
 					);
 				} else {
 					const jwksUri = this.urlService.getInstanceJwksUri();
