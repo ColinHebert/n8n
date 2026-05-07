@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import { createEvalAgent, extractText, HAIKU_MODEL } from '../../../src/utils/eval-agents';
-import { parseJudgeVerdict, REASONING_FIRST_SUFFIX } from '../../../src/utils/llm-judge';
+import { parseJudgeVerdict, REASONING_FIRST_SUFFIX } from '../../utils/llm-judge';
 import type {
 	GraderResult,
 	LlmTaskCompletedGrader,
